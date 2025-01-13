@@ -1,11 +1,9 @@
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.models import resnet50
 import torch.nn as nn
 import time
-
-import timm
+import onnxruntime as ort
 import os
 from torch.utils.data import DataLoader
 
@@ -20,71 +18,64 @@ test_dataset = torchvision.datasets.CIFAR100(
 )
 test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, num_workers=2)
 
-# Load compressed model (example: ResNet-50)
-model = timm.create_model("hf_hub:edadaltocg/resnet50_cifar100", pretrained=True)
-
-# Modify the first convolutional layer to match the expected input size
-model.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
-
-# Modify the final layer to match CIFAR-100 classes
-num_features = model.fc.in_features
-model.fc = nn.Linear(num_features, 100)  # CIFAR-100 has 100 classes
-model.eval()  # Set the model to evaluation mode
+# Load ONNX model
+onnx_model_path = "model.onnx"  # Replace with your ONNX model path
+ort_session = ort.InferenceSession(onnx_model_path)
 
 # Define the criterion (CrossEntropyLoss)
 criterion = nn.CrossEntropyLoss()
 
 # Function to measure inference speed, memory usage, and accuracy
-def test_model_performance(model, test_loader):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model.to(device)
-    
+def test_model_performance(ort_session, test_loader):
     total = 0
     correct = 0
     running_loss = 0.0
     inference_times = []
-    
+
     with torch.no_grad():
         for images, labels in test_loader:
-            images, labels = images.to(device), labels.to(device)
-            
+            images, labels = images.cpu().numpy(), labels.cpu().numpy()  # Convert to NumPy
+
             # Measure inference time
             start_time = time.time()
-            outputs = model(images)
+            ort_inputs = {ort_session.get_inputs()[0].name: images}
+            outputs = ort_session.run(None, ort_inputs)
             end_time = time.time()
-            
+
             inference_times.append(end_time - start_time)
-            
-            loss = criterion(outputs, labels)
+
+            # Convert outputs to tensor for loss calculation
+            outputs_tensor = torch.tensor(outputs[0])
+
+            # Calculate loss
+            loss = criterion(outputs_tensor, torch.tensor(labels))
             running_loss += loss.item()
-            
-            _, predicted = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-    
+
+            # Get predicted classes
+            _, predicted = torch.max(outputs_tensor, 1)
+            total += labels.size
+            correct += (predicted.numpy() == labels).sum()
+
     accuracy = 100 * correct / total
     avg_loss = running_loss / len(test_loader)
     avg_inference_time = sum(inference_times) / len(inference_times)
-    
+
     print(f'Accuracy: {accuracy:.2f}%, Average Loss: {avg_loss:.4f}')
     print(f'Average Inference Time per Batch: {avg_inference_time:.4f} seconds')
-    
+
     return accuracy, avg_loss, avg_inference_time
 
 # Function to measure model size in MB
-def get_model_size(model):
-    temp_path = "temp.pth"
-    torch.save(model.state_dict(), temp_path)
-    size_in_mb = os.path.getsize(temp_path) / (1024 * 1024)
-    # os.remove(temp_path)
+def get_model_size(onnx_model_path):
+    size_in_mb = os.path.getsize(onnx_model_path) / (1024 * 1024)
     return size_in_mb
 
 # Test the model and get performance metrics
-print("Testing the compressed model...")
-accuracy, avg_loss, avg_inference_time = test_model_performance(model, test_loader)
+print("Testing the ONNX model...")
+accuracy, avg_loss, avg_inference_time = test_model_performance(ort_session, test_loader)
 
 # Get model size
-model_size = get_model_size(model)
+model_size = get_model_size(onnx_model_path)
 print(f'Model Size: {model_size:.2f} MB')
 
 # Example baseline values (replace with your actual baseline results)
@@ -100,4 +91,4 @@ size_reduction = (baseline_model_size - model_size) / baseline_model_size * 100
 print("\nPerformance Comparison:")
 print(f'Accuracy Drop: {accuracy_drop:.2f}%')
 print(f'Speed Improvement: {speed_improvement:.2f}%')
-print(f'Size Reduction: {size_reduction:.2f}%')
+print(f'Size Reduction: {size_reduction:.2f}%') 
