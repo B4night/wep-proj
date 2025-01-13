@@ -1,0 +1,47 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Virtual environment directories
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Compiled files
+*.o
+*.so
+*.dll
+*.exe
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# IDE specific files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# ONNX model files (if you want to ignore specific models)
+*.onnx
+
+# Other files you want to ignore
+*.zip
+*.tar.gz
+*.tgz
+*.rar
