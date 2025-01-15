@@ -1,0 +1,4 @@
+/data/
+/quantizations/model/resnet-50/
+/quantizations/data/
+*.pth
