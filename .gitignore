@@ -2,3 +2,4 @@
 /quantizations/model/resnet-50/
 /quantizations/data/
 *.pth
+quantizations/__pycache__/

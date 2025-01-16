@@ -1,158 +1,125 @@
-import argparse
 import os
-import warnings
-
+import time
 import torch
 import torch.nn as nn
-import torch.quantization as quantization
-import torch.backends.quantized
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.data import DataLoader
+from transformers import AutoModelForImageClassification, BitsAndBytesConfig
 
-from torchvision import transforms, datasets
+# Load CIFAR-100 test dataset
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
+])
 
-warnings.filterwarnings("ignore")
+test_dataset = torchvision.datasets.CIFAR100(
+    root='./data', train=False, download=True, transform=transform
+)
+test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, num_workers=2)
 
+# Load the model
+model_name = "jialicheng/cifar100-resnet-50"
+model_origin = AutoModelForImageClassification.from_pretrained(model_name, device_map='auto')
+model_4bit = AutoModelForImageClassification.from_pretrained(model_name, load_in_4bit=True, device_map='auto')
 
-def load_entire_model(model_path: str):
-    """
-    从 .pth 文件加载整个模型（使用 torch.save(model, ...) 保存的）。
-    """
-    model = torch.load(model_path, map_location='cpu')
-    print(f"[INFO] Loaded model from {model_path}, type={type(model)}")
-    return model
+# Move the model to the appropriate device
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device = 'cpu'
+model_origin.to(device)
+model_4bit.to(device)
 
+criterion = nn.CrossEntropyLoss()
 
-def fuse_modules_resnet(model: nn.Module):
-    """
-    针对 torchvision 官方版 ResNet 结构的模块融合。
-    若你的模型结构与此不同，需要自行适配。
-    """
-    # 遍历每个子模块
-    for m_name, m in model.named_children():
-        if isinstance(m, nn.Sequential):
-            # 逐层查找 BasicBlock/Bottleneck 等
-            for sub_name, sub_m in m.named_children():
-                # 这里 sub_m 可能是 BasicBlock / Bottleneck
-                # 通常包含 conv1/bn1/relu, conv2/bn2, optional downsample
-                if hasattr(sub_m, 'conv1') and hasattr(sub_m, 'bn1') and hasattr(sub_m, 'relu'):
-                    # fuse conv1+bn1+relu
-                    quantization.fuse_modules(sub_m, ['conv1', 'bn1', 'relu'], inplace=True)
-                if hasattr(sub_m, 'conv2') and hasattr(sub_m, 'bn2'):
-                    # fuse conv2+bn2
-                    quantization.fuse_modules(sub_m, ['conv2', 'bn2'], inplace=True)
-                # 如果是 Bottleneck，可能还有 conv3/bn3 需要 fuse
-                # if hasattr(sub_m, 'conv3') and hasattr(sub_m, 'bn3'):
-                #     quantization.fuse_modules(sub_m, ['conv3', 'bn3'], inplace=True)
-                #
-                # 如果有 downsample，可以考虑 fuse，但要看 downsample 里具体包含哪些层
-    return model
+def test_model_performance(model, test_loader):
+    total = 0
+    correct = 0
+    running_loss = 0.0
+    inference_times = []
 
-
-# def get_calibration_loader(data_root, batch_size=8):
-#     """
-#     构造一个简单的 DataLoader，用于做量化校准 (forward)。
-#     这里示例用 ImageNet 的子集或其他图片目录。
-#     你也可以用自己的数据集替代。
-#     """
-#     # 简单的预处理变换
-#     transform = transforms.Compose([
-#         transforms.Resize(256),
-#         transforms.CenterCrop(224),
-#         transforms.ToTensor(),
-#     ])
-#     dataset = datasets.ImageFolder(data_root, transform=transform)
-#     data_loader = torch.utils.data.DataLoader(
-#         dataset,
-#         batch_size=batch_size,
-#         shuffle=False,
-#         num_workers=0,  # 根据需要修改
-#     )
-#     return data_loader
-
-
-def post_training_static_quantization(model: nn.Module,
-                                    #   calibration_loader,
-                                      device='cpu'):
-    """
-    后训练静态量化：
-      1. 融合(Fuse)
-      2. 准备(Prepare)
-      3. 校准(Forward)
-      4. 转换(Convert)
-    """
-
-    # 1. 融合模块
     model.eval()
-    model = model.to(device)
-    model = fuse_modules_resnet(model)
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)  
 
-    # 2. 设置后端和量化配置
-    torch.backends.quantized.engine = 'qnnpack'  # 也可用 'fbgemm'
-    model.qconfig = quantization.default_qconfig
+            start_time = time.time()
+            if model.dtype == torch.float16:
+                images = images.half()
+            outputs = model(images).logits
+            end_time = time.time()
 
-    # 3. 准备 (插入观察器等)
-    print("[INFO] Preparing model for static quantization...")
-    model_prepared = quantization.prepare(model, inplace=False)
+            inference_times.append(end_time - start_time)
 
-    # # 4. 校准 (在校准数据上 forward 一遍)
-    # print("[INFO] Calibrating...")
-    # with torch.no_grad():
-    #     for images, _ in calibration_loader:
-    #         images = images.to(device)
-    #         _ = model_prepared(images)
+            loss = criterion(outputs, labels)
+            running_loss += loss.item()
 
-    # 5. 转换 (把观察器替换为量化算子)
-    print("[INFO] Converting model to quantized version...")
-    quantized_model = quantization.convert(model_prepared, inplace=False)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
 
-    return quantized_model
+    print(f'Length of inference times: {len(inference_times)}')
+    accuracy = 100 * correct / total
+    avg_loss = running_loss / len(test_loader)
+    avg_inference_time = sum(inference_times) / len(inference_times)
 
+    print(f'Accuracy: {accuracy:.2f}%, Average Loss: {avg_loss:.4f}')
 
-def save_model(model, output_path):
-    """
-    保存模型
-    """
-    torch.save(model, output_path)
-    print(f"[INFO] Quantized model saved to: {output_path}")
+    return accuracy, avg_loss, avg_inference_time
 
+def get_model_size(model):
+    temp_path = "temp.pth"
+    torch.save(model.state_dict(), temp_path)
+    size_in_mb = os.path.getsize(temp_path) / (1024 * 1024)
+    os.remove(temp_path)  # Clean up the temporary file
+    return size_in_mb
 
-def main():
-    parser = argparse.ArgumentParser(description="Static Quantization for a CNN model (e.g. ResNet).")
-    parser.add_argument("--model-path", type=str, required=True,
-                        help="Path to the input .pth model file (saved with torch.save(model, ...)).")
-    # parser.add_argument("--calibration-data-root", type=str, required=True,
-    #                     help="Root folder of calibration images (ImageFolder style).")
-    parser.add_argument("--output-path", type=str, default="resnet_quantized_static.pth",
-                        help="Path to output quantized model file.")
-    parser.add_argument("--batch-size", type=int, default=8,
-                        help="Batch size for calibration data loader.")
-    args = parser.parse_args()
+def save_model(model, save_path):
+    """Save the model's state dictionary to the specified path."""
+    torch.save(model.state_dict(), save_path)
+    print(f'Model saved to {save_path}')
 
-    # 1. 加载原始模型
-    original_model = load_entire_model(args.model_path)
+def print_info(model):
+    print("Testing the compressed model...")
+    accuracy, avg_loss, avg_inference_time = test_model_performance(model, test_loader)
 
-    # 2. 构造校准 DataLoader
-    # calibration_loader = get_calibration_loader(args.calibration_data_root,
-                                                # batch_size=args.batch_size)
+    model_size = get_model_size(model)
+    print(f'Model Size: {model_size:.2f} MB')
 
-    # 3. 执行静态量化
-    quantized_model = post_training_static_quantization(
-        model=original_model,
-        # calibration_loader=calibration_loader,
-        device='cpu'
-    )
+    # Example baseline values (replace with your actual baseline results)
+    baseline_accuracy = 75.00
+    baseline_inference_time = 0.08
+    baseline_model_size = 100.0
 
-    # 4. 保存量化后的模型
-    save_model(quantized_model, args.output_path)
+    accuracy_drop = baseline_accuracy - accuracy
+    speed_improvement = (baseline_inference_time - avg_inference_time) / baseline_inference_time * 100
+    size_reduction = (baseline_model_size - model_size) / baseline_model_size * 100
 
-    # 5. 对比文件大小
-    original_size = os.path.getsize(args.model_path) / 1024 / 1024
-    quantized_size = os.path.getsize(args.output_path) / 1024 / 1024
-    ratio = original_size / quantized_size if quantized_size else 1
-
-    print(f"[INFO] Original model size:  {original_size:.2f} MB")
-    print(f"[INFO] Quantized model size: {quantized_size:.2f} MB")
-    print(f"[INFO] Compression ratio:    {ratio:.2f}x")
+    print("\nPerformance Comparison:")
+    print(f'Accuracy Drop: {accuracy_drop:.2f}%')
+    print(f'Speed Improvement: {speed_improvement:.2f}%')
+    print(f'Size Reduction: {size_reduction:.2f}%')
 
 
-if __name__ == "__main__":
-    main()
+# # Test original model
+# print("Original Model:")
+# print_info(model_origin)
+
+# Test the 4-bit model
+print("\n4-bit Model:")
+print_info(model_4bit)
+
+# model_qnt = model_origin.to(dtype=torch.int8)
+# print_info(model_qnt)
+
+bnb_config = BitsAndBytesConfig(
+    load_in_8bit=True,
+    llm_int8_threshold=3.0
+)
+
+model_qnt = AutoModelForImageClassification.from_pretrained(model_name, device_map='auto', quantization_config=bnb_config)
+print_info(model_qnt)
+
+# torch.save(model_origin, "model.pth")
+# torch.save(model_4bit, "model_4bit.pth")
+torch.save(model_qnt, "model_qnt.pth")
