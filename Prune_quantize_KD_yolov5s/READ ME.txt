@@ -1,0 +1,4 @@
+All the instructions for running the code are provided in the code snippet. If there are any further questions I can be contacted on
+imran.pevez@kaust.edu.sa. The base file for yolov5s needs to be copied to the yolov5s folder after the dependencies are installed for performance
+evaluation. The inference time and accuracy are calculated using the val.py file in the yolov5s library. The model size is calculated using the snippet
+provided by the organizers.  
