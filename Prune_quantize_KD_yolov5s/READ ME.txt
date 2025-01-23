@@ -1,4 +1,7 @@
 All the instructions for running the code are provided in the code snippet. If there are any further questions I can be contacted on
 imran.pevez@kaust.edu.sa. The base file for yolov5s needs to be copied to the yolov5s folder after the dependencies are installed for performance
 evaluation. The inference time and accuracy are calculated using the val.py file in the yolov5s library. The model size is calculated using the snippet
-provided by the organizers.  
+provided by the organizers. Note: the file size for the yolov5s may look 14.2 mb; however, when calculated using the code provided by the organizer, it calculate 27.61 mb. 
+I calculated all the file sizes using the code provided by the organizer rather than putting the values shown in the directory. Also, normallly after quantization 
+on GPU the file size reduces by around two times which the file size code represents when the size of the compressed file is calculated using that.  
+
