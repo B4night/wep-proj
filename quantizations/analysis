@@ -1,0 +1,42 @@
+mobilenet full
+Model Size: 16.70 MB
+Accuracy: 82.81%
+Speed Improvement: 54.56%
+weighted score: 51.61651762686566
+
+
+mobilenet quant
+Model Size: 8.40 MB
+Accuracy: 82.81%
+Speed Improvement: 56.34%
+weighted score: 64.78386630632923
+
+
+
+resnet18 full
+Model Size: 42.90 MB
+Accuracy: 80.17%
+Speed Improvement: 84.64%
+weighted score: 75.03687737356782
+
+
+resnet18 quant
+Model Size: 21.47 MB
+Accuracy: 80.15%
+Speed Improvement: 88.61%
+weighted score: 83.04816501423053
+
+
+
+resnet56 full
+Model Size: 2.70 MB
+Accuracy: 71.85%
+Speed Improvement: 83.46%
+weighted score: 84.13061583427867
+
+resnet56 quant
+Model Size: 1.41 MB
+Accuracy: 71.84%
+Speed Improvement: 81.90%
+weighted score: 83.8899436918125
+
