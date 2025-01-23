@@ -8,5 +8,13 @@ This script is designed to test the performance of pruned PyTorch models on the 
 
 ## Evaluation
 ```bash
+conda create -n RL_Pruner python=3.10 -y
+conda activate RL_Pruner
+pip install -r requirements.txt
+```
+
+
+## Evaluation
+```bash
 python test_prunded_model.py
 ```
