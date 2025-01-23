@@ -1,6 +1,6 @@
-# Model Performance Testing Script
+# RL Pruned Model Performance Testing 
 
-This script is designed to test the performance of pruned PyTorch models on the CIFAR-100 dataset. It evaluates each model's accuracy, inference time, and size, and compares the results to baseline values.
+Evaluation of pruned model's accuracy, inference time, and size, and compares the results to baseline values.
 
 - **Model Testing**: Tests all `.pth` models in the `./compressed_model/` folder.
 - **Performance Metrics**: Measures accuracy, average loss, inference time, and model size.
